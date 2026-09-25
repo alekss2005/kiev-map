@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+<title>Карта тревог v14.15</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --bg:#e8eef4;--panel:rgba(255,255,255,.94);--text:#1e293b;--muted:#64748b;
+    --accent:#2563eb;--danger:#dc2626;--ok:#16a34a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;width:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text)}
+  #map{position:absolute;inset:0;z-index:1}
+  #map .err{display:flex;align-items:center;justify-content:center;height:100%;padding:24px;
+    font:14px/1.6 -apple-system,sans-serif;color:#991b1b;background:#fef2f2;text-align:left}
+  #map .err b{display:block;margin-bottom:6px;font-size:16px}
+  #map .err code{background:#fee2e2;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:12px}
+
+  .hud-top{position:absolute;top:8px;left:10px;right:10px;z-index:1000;
+    display:flex;flex-direction:column;gap:3px;pointer-events:none}
+  .hud-top>*{pointer-events:auto}
+  .hud-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .stats{display:flex;gap:3px;flex-wrap:wrap;background:var(--panel);backdrop-filter:blur(10px);
+    border:1px solid rgba(148,163,184,.5);border-radius:8px;padding:3px 5px;
+    box-shadow:0 2px 8px rgba(15,23,42,.12)}
+  .stat{text-align:center;min-width:32px;padding:1px 3px}
+  .stat .num{font-size:.72rem;font-weight:700;line-height:1.1;color:#64748b}
+  .stat .lbl{font-size:.42rem;color:var(--muted);text-transform:uppercase;letter-spacing:.02em}
+  .stat.uav .num{color:#ea580c}
+  .stat.missile .num{color:var(--danger)}
+  .stat.kab .num{color:#dc2626}
+  .stat.bander .num{color:#dc2626}
+  .stat.jet .num{color:#b91c1c}
+  .stat.mig .num{color:#e11d48}
+  .stat.strat .num{color:#ea580c}
+  .stat.impact .num{color:#b91c1c}
+  .stat.alert .num{color:#e11d48}
+  .badge{font-size:.58rem;background:var(--panel);backdrop-filter:blur(10px);
+    border:1px solid rgba(148,163,184,.5);padding:3px 8px;border-radius:999px;color:var(--muted);
+    box-shadow:0 2px 8px rgba(15,23,42,.12)}
+  .badge.live{color:var(--ok);border-color:#86efac}
+  .badge.stale{color:#b45309;border-color:#fbbf24;background:#fef3c7}
+  .badge.err{color:#991b1b;border-color:#fca5a5;background:#fee2e2}
+
+  .threat-meter{
+    background:var(--panel);backdrop-filter:blur(10px);
+    border:1px solid rgba(148,163,184,.5);
+    border-radius:8px;box-shadow:0 2px 8px rgba(15,23,42,.12);
+    font-size:.7rem;font-weight:600;max-width:560px;
+    overflow:hidden;user-select:none;cursor:pointer;
+  }
+  .tm-header{display:flex;align-items:center;gap:8px;padding:4px 10px;height:24px}
+  .tm-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;
+    box-shadow:0 0 6px currentColor}
+  .tm-text{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tm-score{font-family:ui-monospace,monospace;font-size:.6rem;
+    padding:1px 5px;border-radius:4px;flex-shrink:0}
+  .tm-chev{flex-shrink:0;font-size:.65rem;transition:transform .2s;opacity:.7}
+  .threat-meter.open .tm-chev{transform:rotate(180deg)}
+  .tm-body{max-height:0;overflow:hidden;transition:max-height .3s ease-out}
+  .threat-meter.open .tm-body{max-height:320px;border-top:1px solid rgba(148,163,184,.3)}
+  .tm-row{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:.68rem;
+    font-weight:500;border-bottom:1px solid rgba(148,163,184,.15)}
+  .tm-row:last-child{border-bottom:0}
+  .tm-row .ico{flex-shrink:0;width:16px;text-align:center}
+  .tm-row .label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tm-row .weight{font-family:ui-monospace,monospace;font-size:.62rem;font-weight:800;
+    padding:1px 5px;border-radius:3px;flex-shrink:0}
+  .tm-row.active .weight{background:rgba(220,38,38,.15);color:#991b1b}
+  .tm-row.idle .weight{background:rgba(148,163,184,.15);color:var(--muted)}
+  .tm-row.idle .label{color:var(--muted)}
+
+  .threat-meter.green{background:linear-gradient(90deg,rgba(220,252,231,.97),rgba(240,253,244,.97));border-color:#86efac;color:#166534}
+  .threat-meter.green .tm-dot{color:#16a34a;background:#16a34a}
+  .threat-meter.green .tm-score{color:#166534;background:rgba(22,163,74,.12)}
+  .threat-meter.yellow{background:linear-gradient(90deg,rgba(254,249,195,.97),rgba(254,252,232,.97));border-color:#fde047;color:#854d0e}
+  .threat-meter.yellow .tm-dot{color:#ca8a04;background:#ca8a04}
+  .threat-meter.yellow .tm-score{color:#854d0e;background:rgba(202,138,4,.12)}
+  .threat-meter.orange{background:linear-gradient(90deg,rgba(255,237,213,.97),rgba(254,243,199,.97));border-color:#fb923c;color:#9a3412}
+  .threat-meter.orange .tm-dot{color:#ea580c;background:#ea580c}
+  .threat-meter.orange .tm-score{color:#9a3412;background:rgba(234,88,12,.12)}
+  .threat-meter.red{background:linear-gradient(90deg,rgba(254,226,226,.97),rgba(255,228,230,.97));border-color:#f87171;color:#991b1b}
+  .threat-meter.red .tm-dot{color:#dc2626;background:#dc2626}
+  .threat-meter.red .tm-score{color:#991b1b;background:rgba(220,38,38,.15)}
+
+  .hud-bottom{position:absolute;bottom:12px;left:10px;right:10px;z-index:1000;
+    display:flex;flex-direction:column;gap:6px;align-items:flex-start;pointer-events:none}
+  .hud-bottom>*{pointer-events:auto}
+  button{background:var(--panel);backdrop-filter:blur(10px);border:1px solid rgba(148,163,184,.5);
+    color:var(--text);padding:6px 12px;border-radius:8px;font-size:1rem;line-height:1;
+    cursor:pointer;box-shadow:0 2px 8px rgba(15,23,42,.12);font-weight:700}
+  .btn-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .attr{font-size:.6rem;color:var(--muted);line-height:1.35;background:var(--panel);
+    backdrop-filter:blur(10px);border:1px solid rgba(148,163,184,.5);border-radius:6px;
+    padding:4px 8px;max-width:100%}
+  .attr a{color:var(--accent);text-decoration:none}
+
+  .leaflet-popup-content-wrapper{background:#fff;color:var(--text);border-radius:12px;
+    box-shadow:0 8px 32px rgba(15,23,42,.2)}
+  .leaflet-popup-tip{background:#fff}
+  .leaflet-popup-content{margin:12px 14px;font-size:.85rem;line-height:1.45;max-width:320px}
+  .popup-title{font-weight:700;font-size:.95rem;margin-bottom:4px}
+  .popup-meta{color:var(--muted);font-size:.75rem}
+  .type-uav{color:#1e293b}.type-missile,.type-ballistic{color:var(--danger)}
+  .type-kab{color:#dc2626}.type-fpv{color:#ca8a04}.type-recon{color:#0284c7}
+  .type-mig31k{color:#e11d48}.type-banderol{color:#dc2626}.type-launcher{color:#dc2626}
+  .type-jet_drone{color:#b91c1c}.type-umpb{color:#7c2d12}
+  .type-strategic_aviation{color:#ea580c}.type-awacs{color:#0284c7}.type-impact{color:#b91c1c}
+  .popup-guess{color:#b45309;font-size:.7rem;margin-top:4px}
+  .popup-mapa{color:#7c3aed;font-size:.7rem;margin-top:4px;font-weight:600}
+  .popup-channels{margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0;font-size:.7rem}
+  .popup-channels .ch{display:inline-block;background:#f1f5f9;color:#334155;
+    padding:1px 6px;border-radius:10px;margin:1px 3px 1px 0;border:1px solid #cbd5e1}
+  .popup-channels .ch.trusted{background:#dcfce7;border-color:#86efac;color:#166534}
+  .popup-channels .ch.suspicious{background:#fee2e2;border-color:#fca5a5;color:#991b1b}
+  .popup-eta{background:#fee2e2;color:#7f1d1d;padding:3px 8px;border-radius:6px;
+    font-weight:700;font-size:.75rem;display:inline-block;margin-top:6px}
+
+  .threat-icon{width:28px;height:28px;display:flex;align-items:center;justify-content:center;
+    filter:drop-shadow(0 1px 3px rgba(0,0,0,.4));position:relative}
+  .threat-icon svg{width:24px;height:24px;display:block}
+  .threat-icon.falling svg path{fill:#dc2626!important;stroke:#7f1d1d!important}
+  .threat-icon .dir-arrow{position:absolute;top:-11px;left:50%;margin-left:-5px;width:0;height:0;
+    border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #111;
+    filter:drop-shadow(0 0 1px #fff)}
+  .alt-badge{position:absolute;left:calc(100% + 4px);top:50%;transform:translateY(-50%);
+    background:rgba(255,255,255,.96);color:#166534;font-size:9.5px;font-weight:700;
+    padding:2px 5px;border-radius:4px;white-space:nowrap;
+    border:1px solid rgba(34,197,94,.6);pointer-events:none}
+  .alt-badge.low{color:#b91c1c;border-color:rgba(220,38,38,.6)}
+  .eta-badge{position:absolute;right:calc(100% + 4px);top:50%;transform:translateY(-50%);
+    background:#7f1d1d;color:#fecaca;font-size:9.5px;font-weight:800;
+    padding:2px 5px;border-radius:4px;white-space:nowrap;border:1px solid #dc2626;pointer-events:none}
+  .count-badge{position:absolute;right:-6px;top:-6px;height:16px;min-width:16px;padding:0 5px;
+    border-radius:8px;background:#ea580c;color:#fff;font-size:10px;font-weight:900;
+    display:flex;align-items:center;justify-content:center;border:1px solid #fff;line-height:1}
+  .stage-badge{position:absolute;left:50%;top:100%;margin-top:16px;transform:translateX(-50%);
+    background:#7f1d1d;color:#fff;font-size:8px;font-weight:800;
+    padding:1px 5px;border-radius:3px;white-space:nowrap;border:1px solid #dc2626}
+  .stage-badge.warn{background:#b45309;border-color:#f59e0b}
+  .stage-badge.ready{background:#9a3412;border-color:#ea580c}
+  .stage-badge.takeoff{background:#7c2d12;border-color:#ea580c}
+  .stage-badge.observe{background:#334155;border-color:#64748b}
+  .falling-badge{position:absolute;left:50%;top:-16px;transform:translateX(-50%);
+    background:#7f1d1d;color:#fecaca;font-size:9px;font-weight:800;
+    padding:1px 5px;border-radius:4px;white-space:nowrap;border:1px solid #dc2626}
+
+  .zone-circle{fill:rgba(59,130,246,.05);stroke:#3b82f6;stroke-width:1.5;
+    stroke-dasharray:6 4;opacity:.5;pointer-events:none}
+  .leaflet-control-attribution{font-size:9px!important;background:rgba(255,255,255,.8)!important;color:#64748b!important}
+  .toast{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:2000;
+    background:#1e293b;color:#f1f5f9;padding:10px 16px;border-radius:10px;
+    border:1px solid rgba(148,163,184,.4);font-size:.8rem;box-shadow:0 8px 24px rgba(0,0,0,.3);
+    opacity:0;transition:opacity .25s;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="hud-top">
+  <div class="hud-row">
+    <div class="stats" id="stats">
+      <div class="stat uav"><div class="num" id="cntUav">0</div><div class="lbl">БПЛА</div></div>
+      <div class="stat missile"><div class="num" id="cntMissile">0</div><div class="lbl">Ракеты</div></div>
+      <div class="stat jet"><div class="num" id="cntJet">0</div><div class="lbl">Реакт. Герань</div></div>
+      <div class="stat bander"><div class="num" id="cntBander">0</div><div class="lbl">Бандероль</div></div>
+      <div class="stat kab"><div class="num" id="cntKab">0</div><div class="lbl">КАБ / УМПБ</div></div>
+      <div class="stat mig"><div class="num" id="cntMig">0</div><div class="lbl">МиГ-31К</div></div>
+      <div class="stat strat"><div class="num" id="cntStrat">0</div><div class="lbl">Стратег.</div></div>
+    </div>
+  </div>
+
+  <div class="threat-meter green" id="threatMeter" role="button" tabindex="0">
+    <div class="tm-header">
+      <div class="tm-dot"></div>
+      <div class="tm-text" id="tmText">Загрузка…</div>
+      <div class="tm-score" id="tmScore">0/10</div>
+      <div class="tm-chev">▾</div>
+    </div>
+    <div class="tm-body" id="tmBody"></div>
+  </div>
+</div>
+
+<div class="hud-bottom">
+  <div class="btn-row">
+    <button type="button" id="btnRefresh" title="Обновить">↻</button>
+    <span class="badge" id="liveBadge">…</span>
+  </div>
+  <div class="attr">
+    Данные: <a href="https://neptun.in.ua/" target="_blank" rel="noopener">NEPTUN</a>
+    · Тайлы: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>.
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   ГЛОБАЛЬНАЯ ЗАЩИТА ОТ ОШИБОК
+============================================================ */
+window.__errors = [];
+window.addEventListener("error", function(e){
+  window.__errors.push(e);
+  var m = document.getElementById("map");
+  if (m && !m.dataset.errShown) {
+    m.dataset.errShown = "1";
+    m.innerHTML = '<div class="err"><div>' +
+      '<b>⚠ Ошибка скрипта</b>' +
+      'Файл: <code>' + ((e.filename||"").split("/").pop() || "?") + '</code><br>' +
+      'Строка: <code>' + (e.lineno || "?") + '</code><br>' +
+      'Сообщение: <code>' + (e.message || "unknown") + '</code>' +
+      '</div></div>';
+  }
+});
+</script>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+/* ============================================================
+   КАРТА ТРЕВОГ v14.15-fix
+============================================================ */
+(function(){
+"use strict";
+
+/* --- ЗАЩИТА: проверка Leaflet --- */
+if (typeof L === "undefined") {
+  document.getElementById("map").innerHTML = '<div class="err"><div>' +
+    '<b>⚠ Leaflet не загрузился</b>' +
+    'Проверьте интернет или отключите блокировщик рекламы.<br>' +
+    'Прямой тест: <code>unpkg.com/leaflet@1.9.4/dist/leaflet.js</code>' +
+    '</div></div>';
+  return;
+}
+
+/* ============================================================
+   КОНФИГ
+============================================================ */
+var CONFIG = {
+  API_MESSAGES: "https://neptun.in.ua/api/v1/messages",
+  API_ALERTS:   "https://neptun.in.ua/api/v1/alerts",
+  POLL_MS: 8000,
+  KYIV: [50.45, 30.52],
+  ZONE_RADIUS_KM: 250,
+  STALE_MSG_MS: 5 * 60 * 1000,
+  DEDUP_DIST_KM: 15,
+  PRE_TARGET_OFFSET_KM: 15,
+  BANDEROL_OFFSET_KM: 40,
+  TILE_URL: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  TILE_ATTR: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  METER_WEIGHTS: { alert_kyiv:3, uav_launch:1, missile_launch:3, ballistic:2, mig:2, strategic:3 },
+  METER_MAX: 10
+};
+
+var OBSERVATION_TYPES = { banderol:1, jet_drone:1 };
+
+/* ============================================================
+   УТИЛИТЫ
+============================================================ */
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  var R = 6371, toRad = function(d){ return d * Math.PI / 180; };
+  var dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
+  var a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+          Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)*Math.sin(dLon/2);
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+function bearingBetween(lat1, lon1, lat2, lon2) {
+  var φ1 = lat1*Math.PI/180, φ2 = lat2*Math.PI/180;
+  var Δλ = (lon2-lon1)*Math.PI/180;
+  var y = Math.sin(Δλ)*Math.cos(φ2);
+  var x = Math.cos(φ1)*Math.sin(φ2)-Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+  return (Math.atan2(y,x)*180/Math.PI+360)%360;
+}
+function destPoint(lat, lon, bearingDeg, distKm) {
+  var R = 6371, br = bearingDeg*Math.PI/180;
+  var lat1 = lat*Math.PI/180, lon1 = lon*Math.PI/180;
+  var lat2 = Math.asin(Math.sin(lat1)*Math.cos(distKm/R) +
+    Math.cos(lat1)*Math.sin(distKm/R)*Math.cos(br));
+  var lon2 = lon1 + Math.atan2(Math.sin(br)*Math.sin(distKm/R)*Math.cos(lat1),
+    Math.cos(distKm/R)-Math.sin(lat1)*Math.sin(lat2));
+  return [lat2*180/Math.PI, lon2*180/Math.PI];
+}
+
+/* ============================================================
+   ТОЧКИ ЗАПУСКА (сокращённый набор)
+============================================================ */
+var LAUNCH_AREAS = [
+  { name:"Курская обл.", lat:51.73, lon:36.19 },
+  { name:"Брянская обл.", lat:53.25, lon:34.37 },
+  { name:"Белгородская обл.", lat:50.60, lon:36.59 },
+  { name:"Ростовская обл.", lat:47.24, lon:39.70 },
+  { name:"Крым / Чёрное море", lat:45.0, lon:34.0 }
+];
+function nearestLaunch(lat, lon) {
+  var best = LAUNCH_AREAS[0], bestD = Infinity;
+  for (var i=0; i<LAUNCH_AREAS.length; i++) {
+    var a = LAUNCH_AREAS[i];
+    var d = (a.lat-lat)*(a.lat-lat) + (a.lon-lon)*(a.lon-lon);
+    if (d < bestD) { bestD = d; best = a; }
+  }
+  return best;
+}
+
+/* ============================================================
+   НАСЕЛЁННЫЕ ПУНКТЫ (сокращённый набор для Киевщины и ключевых городов)
+============================================================ */
+var PLACES = {
+  "київ":[50.45,30.52,"Київ"],"киев":[50.45,30.52,"Киев"],"kyiv":[50.45,30.52,"Kyiv"],
+  "оболонь":[50.52,30.50,"Оболонь"],"подол":[50.47,30.52,"Поділ"],
+  "печерськ":[50.43,30.54,"Печерськ"],"дарниц":[50.43,30.65,"Дарниця"],
+  "троєщин":[50.52,30.58,"Троєщина"],"позняки":[50.41,30.63,"Позняки"],
+  "осокорки":[50.39,30.62,"Осокорки"],"теремки":[50.37,30.45,"Теремки"],
+  "ірпінь":[50.52,30.25,"Ірпінь"],"буча":[50.55,30.22,"Буча"],
+  "гостомел":[50.57,30.27,"Гостомель"],"вишгород":[50.58,30.49,"Вишгород"],
+  "бровари":[50.51,30.79,"Бровари"],"бориспіль":[50.35,30.95,"Бориспіль"],
+  "вишнев":[50.39,30.37,"Вишневе"],"фастів":[50.07,29.92,"Фастів"],
+  "біла церква":[49.79,30.11,"Біла Церква"],"бородянк":[50.64,29.92,"Бородянка"],
+  "іванків":[50.94,29.89,"Іванків"],"иванков":[50.94,29.89,"Иванков"],
+  "макарів":[50.46,29.81,"Макарів"],"васильків":[50.18,30.32,"Васильків"],
+  "глевах":[50.34,30.30,"Глеваха"],"боярк":[50.32,30.31,"Боярка"],
+  "вишеньки":[50.398,30.665,"Вишеньки"],"дврз":[50.428,30.662,"ДВРЗ"],
+  "чернігів":[51.50,31.29,"Чернігів"],"ніжин":[51.05,31.88,"Ніжин"],
+  "суми":[50.91,34.80,"Суми"],"харків":[49.99,36.23,"Харків"],
+  "дніпро":[48.46,35.04,"Дніпро"],"запоріжжя":[47.84,35.14,"Запоріжжя"],
+  "одеса":[46.48,30.73,"Одеса"],"миколаїв":[46.97,32.00,"Миколаїв"],
+  "херсон":[46.64,32.62,"Херсон"],"полтава":[49.59,34.55,"Полтава"],
+  "черкаси":[49.44,32.06,"Черкаси"],"вінниця":[49.23,28.47,"Вінниця"],
+  "житомир":[50.25,28.66,"Житомир"],"рівне":[50.62,26.25,"Рівне"],
+  "луцьк":[50.75,25.34,"Луцьк"],"львів":[49.84,24.03,"Львів"],
+  "тернопіль":[49.55,25.60,"Тернопіль"],"ужгород":[48.62,22.29,"Ужгород"],
+  "курск":[51.73,36.19,"Курск"],"белгород":[50.60,36.59,"Белгород"],
+  "брянск":[53.25,34.37,"Брянск"],"орёл":[52.97,36.06,"Орёл"],
+  "воронеж":[51.67,39.18,"Воронеж"],"ростов-на-дону":[47.24,39.70,"Ростов-на-Дону"]
+};
+var PLACE_KEYS_BY_LEN = Object.keys(PLACES).sort(function(a,b){ return b.length - a.length; });
+
+function findPlaceInText(text) {
+  var low = String(text||"").toLowerCase();
+  for (var i=0; i<PLACE_KEYS_BY_LEN.length; i++) {
+    var key = PLACE_KEYS_BY_LEN[i];
+    var idx = low.indexOf(key);
+    if (idx >= 0) {
+      var p = PLACES[key];
+      return { key:key, name:p[2], lat:p[0], lon:p[1], index:idx, length:key.length };
+    }
+  }
+  return null;
+}
+function findPlaceInTail(text, fromIndex, maxDist) {
+  var tail = String(text||"").slice(fromIndex).toLowerCase();
+  for (var i=0; i<PLACE_KEYS_BY_LEN.length; i++) {
+    var key = PLACE_KEYS_BY_LEN[i];
+    var idx = tail.indexOf(key);
+    if (idx >= 0 && idx <= maxDist) {
+      var p = PLACES[key];
+      return { key:key, name:p[2], lat:p[0], lon:p[1], index:fromIndex+idx, length:key.length };
+    }
+  }
+  return null;
+}
+
+/* ============================================================
+   ОБЛАСТИ-СУФФИКСЫ
+============================================================ */
+var OBLAST_SUFFIX = [
+  { key:"київщина", re:/київщин|киевщин|київськ(?:а|ої|у)\s+обл/i, name:"Київська обл.", lat:50.30, lon:30.30 },
+  { key:"чернігівщина", re:/чернігівщин|черниговщин|чернігівськ(?:а|ої|у)\s+обл/i, name:"Чернігівська обл.", lat:51.30, lon:31.50 },
+  { key:"житомирщина", re:/житомирщин|житомирськ(?:а|ої|у)\s+обл/i, name:"Житомирська обл.", lat:50.50, lon:28.50 },
+  { key:"сумщина", re:/сумщин|сумськ(?:а|ої|у)\s+обл/i, name:"Сумська обл.", lat:51.00, lon:34.00 },
+  { key:"полтавщина", re:/полтавщин|полтавськ(?:а|ої|у)\s+обл/i, name:"Полтавська обл.", lat:49.60, lon:34.00 },
+  { key:"черкащина", re:/черкащин|черкаськ(?:а|ої|у)\s+обл/i, name:"Черкаська обл.", lat:49.30, lon:31.80 },
+  { key:"вінниччина", re:/вінниччин|вінницьк(?:а|ої|у)\s+обл/i, name:"Вінницька обл.", lat:49.00, lon:28.50 },
+  { key:"одещина", re:/одещин|одеськ(?:а|ої|у)\s+обл/i, name:"Одеська обл.", lat:46.50, lon:30.00 },
+  { key:"львівщина", re:/львівщин|львівськ(?:а|ої|у)\s+обл/i, name:"Львівська обл.", lat:49.80, lon:24.00 },
+  { key:"харківщина", re:/харківщин|харьковщин|харківськ(?:а|ої|у)\s+обл/i, name:"Харківська обл.", lat:49.90, lon:36.30 },
+  { key:"дніпропетровщина", re:/дніпропетровщин|днепропетровщин/i, name:"Дніпропетровська обл.", lat:48.50, lon:35.00 },
+  { key:"запоріжчина", re:/запоріжчин|запорожчин|запорізьк(?:а|ої|у)\s+обл/i, name:"Запорізька обл.", lat:47.50, lon:35.50 },
+  { key:"херсонщина", re:/херсонщин|херсонськ(?:а|ої|у)\s+обл/i, name:"Херсонська обл.", lat:46.60, lon:33.00 },
+  { key:"миколаївщина", re:/миколаївщин|николаевщин/i, name:"Миколаївська обл.", lat:47.20, lon:31.80 }
+];
+function findOblastInText(text) {
+  var t = String(text||"");
+  for (var i=0; i<OBLAST_SUFFIX.length; i++) {
+    var o = OBLAST_SUFFIX[i];
+    var m = o.re.exec(t);
+    if (m) return { key:o.key, name:o.name, lat:o.lat, lon:o.lon, index:m.index, length:m[0].length };
+  }
+  return null;
+}
+
+/* ============================================================
+   КЛАССИФИКАТОР v14.15
+============================================================ */
+var CLASSIFIER = (function(){
+  var HARD_RULES = [
+    { re:/(?:^|[\s(])р\s*бпла(?:\b|$)/i, type:"jet_drone", label:"Реакт. Герань", isMissile:true, isJetDrone:true },
+    { re:/реактивн(?:ий|ых|і|ого|ими|ые|а|ої|ому|ой|ою)\s+(?:бпла|бплa|дрон|шахед|герань|безпілотник|беспилотник)/i, type:"jet_drone", label:"Реакт. Герань", isMissile:true, isJetDrone:true },
+    { re:/реактивн(?:ий|ых|і|ого|ими|ые|а|ої|ому|ой)\s+(?:повз|на|у|в|курс|продовжує|продолжает|рухається|движется|летить|летит|взлет|зліт|злет)/i, type:"jet_drone", label:"Реакт. Герань", isMissile:true, isJetDrone:true },
+    { re:/реактивн(?:ий|ых|і|ого|ими|ые|а|ої|ому|ой)\b(?!\s+(?:літак|самолет|самольот|двигун|двигател|движок|мотор))/i, type:"jet_drone", label:"Реакт. Герань", isMissile:true, isJetDrone:true },
+    { re:/ту-?\s*95|ту-?\s*160|ту-?\s*22|tu-?\s*95|tu-?\s*160|стратег[іи]чн[оаі]?\s*авіац|стратегическ[ао]й?\s*авиац/i, type:"strategic_aviation", label:"Стратег. авиация", isStrategic:true },
+    { re:/а-?50\s?у|а-?50у|a-?50u/i, type:"awacs", label:"А-50У", isAwacs:true },
+    { re:/герань\s*-?\s*[34]\b|geran\s*-?\s*[34]\b/i, type:"jet_drone", label:"Реакт. Герань", isMissile:true, isJetDrone:true },
+    { re:/ум[пб]б[-\s]?5|ум[пб]б|umpb|умпб/i, type:"umpb", label:"УМПБ-5", isMissile:true, isKAB:true },
+    { re:/мгкр|мг\s*кр|малокаліберн/i, type:"banderol", label:"мгКР", isMissile:true, isBanderol:true },
+    { re:/бандерол/i, type:"banderol", label:"Бандероль", isMissile:true, isBanderol:true },
+    { re:/балістик|баллистик|кинжал|кінжал|іскандер|искандер|циркон|кн-?23|kn-?23/i, type:"ballistic", label:"Бал", isMissile:true },
+    { re:/герань\s*-?\s*5|geran\s*-?\s*5|герань-5|geran-5/i, type:"missile", label:"Г-5", isMissile:true, geran5:true },
+    { re:/каб\b|kab\b|уаб\b/i, type:"kab", label:"КАБ", isMissile:true, isKAB:true },
+    { re:/крилат[аиі]?\s+ракет|крилата\s+ракет|х-?\s*101|х-?\s*555|калібр|калибр|kalibr/i, type:"missile", label:"КР", isMissile:true },
+    { re:/миг-?31|міг-?31|mig-?31/i, type:"mig31k", label:"МиГ-31К", isMig:true }
+  ];
+  var SOFT_RULES = [
+    { re:/fpv|фпв/i, type:"fpv", label:"FPV" },
+    { re:/шахед|shahed|герань|geran|бпла|бплa|дрон|безпілотник|беспилотник/i, type:"uav", label:"БПЛА" },
+    { re:/розвід|развед|recon/i, type:"recon", label:"Розв" }
+  ];
+  return function(text){
+    var t = String(text||"");
+    for (var i=0; i<HARD_RULES.length; i++) if (HARD_RULES[i].re.test(t)) {
+      var r = HARD_RULES[i];
+      return { type:r.type, label:r.label, isMissile:!!r.isMissile, isKAB:!!r.isKAB,
+               isBanderol:!!r.isBanderol, isJetDrone:!!r.isJetDrone, isMig:!!r.isMig,
+               isStrategic:!!r.isStrategic, isAwacs:!!r.isAwacs, geran5:!!r.geran5, hard:true };
+    }
+    for (var j=0; j<SOFT_RULES.length; j++) if (SOFT_RULES[j].re.test(t)) {
+      var s = SOFT_RULES[j];
+      return { type:s.type, label:s.label, hard:false };
+    }
+    return null;
+  };
+})();
+
+/* ============================================================
+   ДВОЙНАЯ ПОЗИЦИЯ
+============================================================ */
+var OBSERVED_BY_RE = /(?:повз|мимо|біля|возле|рядом\s+с|около|над\s+|проходить\s+повз|пройшов\s+повз)\s+/i;
+var TARGET_BY_RE = /(?:у\s+бік|в\s+сторону|в\s+напрямку|курс(?:ом)?\s+на|на\s+напрямок|прямує\s+на|летить\s+на|рухається\s+на|на\s+північ|на\s+південь|на\s+захід|на\s+схід)\s+([А-ЯІЇЄҐа-яіїєґ'’\-]+(?:\s+[А-ЯІЇЄҐа-яіїєґ][а-яіїєґ'’\-]+){0,3})/i;
+var FROM_TO_RE = /(?:з|із|от|со)\s+([А-ЯІЇЄҐа-яіїєґ'’\-]+(?:щини|щині|ської|ской|обл\.?))\s+(?:на|в|у|до)\s+(.+)/i;
+
+function parseDualPosition(text) {
+  var result = { observed:null, target:null };
+  if (!text) return result;
+  var obsMatch = OBSERVED_BY_RE.exec(text);
+  if (obsMatch) {
+    var tailStart = obsMatch.index + obsMatch[0].length;
+    var p = findPlaceInTail(text, tailStart, 30);
+    if (p) result.observed = p;
+  }
+  var tgtMatch = TARGET_BY_RE.exec(text);
+  if (tgtMatch) {
+    var cand = String(tgtMatch[1]||"").trim().toLowerCase();
+    for (var i=0; i<PLACE_KEYS_BY_LEN.length; i++) {
+      var key = PLACE_KEYS_BY_LEN[i];
+      if (cand.indexOf(key) >= 0 || key.indexOf(cand) >= 0) {
+        var p2 = PLACES[key];
+        result.target = { key:key, name:p2[2], lat:p2[0], lon:p2[1] };
+        break;
+      }
+    }
+    if (!result.target) {
+      var ob = findOblastInText(tgtMatch[1]||"");
+      if (ob) result.target = { key:ob.key, name:ob.name, lat:ob.lat, lon:ob.lon };
+    }
+  }
+  return result;
+}
+function parseFromTo(text) {
+  var result = { from:null, to:null };
+  if (!text) return result;
+  var m = FROM_TO_RE.exec(text);
+  if (!m) return result;
+  var fromOb = findOblastInText(m[1]);
+  if (fromOb) result.from = { key:fromOb.key, name:fromOb.name, lat:fromOb.lat, lon:fromOb.lon };
+  var toOb = findOblastInText(m[2]);
+  if (toOb) result.to = { key:toOb.key, name:toOb.name, lat:toOb.lat, lon:toOb.lon };
+  else {
+    var toPlace = findPlaceInText(m[2]);
+    if (toPlace) result.to = { key:toPlace.key, name:toPlace.name, lat:toPlace.lat, lon:toPlace.lon };
+  }
+  return result;
+}
+
+/* ============================================================
+   ОПРЕДЕЛЕНИЕ СТАДИИ
+============================================================ */
+var READY_RE = /бойов[аоі]й?\s+готовност|боев[оа]й?\s+готовност|готов[іи]\s+до\s+застосування|готовы\s+к\s+применению/i;
+var THREAT_RE = /загроза|угроза|можлив|возможн|готов|напоготові|готують|готується|підготовк|подготовк/i;
+var NON_AIR_RE = /диверс|партизан|атеш|саботаж|підпал|поджог|боєць|боец\b|батальйон|бригад/i;
+
+function detectStage(text) {
+  if (!text) return null;
+  if (NON_AIR_RE.test(text)) return null;
+  if (/відбій|отбой|загроза\s+миновала|угроза\s+миновала/i.test(text)) return null;
+  if (/зліт|злет|взлет|взліт|вилетів|вылетел|уже\s+в\s+воздух|уже\s+в\s+повітрі/i.test(text)) return "takeoff";
+  if (/пуск|пуски|запуск|запуски|старт|стартував|уже\s+в\s+повітр|уже\s+в\s+воздух/i.test(text)) return "launch";
+  if (READY_RE.test(text)) return "ready";
+  if (THREAT_RE.test(text)) return "threat";
+  return null;
+}
+
+/* ============================================================
+   АЛЬТИТЮД И ПРОЧЕЕ
+============================================================ */
+function parseAltitude(t) {
+  if (typeof t.altitude === "number") return Math.round(t.altitude);
+  if (typeof t.alt === "number") return Math.round(t.alt);
+  var text = [t.title, t.explanationShort, t.text].filter(Boolean).join(" ");
+  if (!text) return null;
+  var m = text.match(/(?:висот[аіиою]|высот[аеыою]|на\s+висот[іи]|на\s+высот[е])\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(км|km|м|m)\b/i);
+  if (m) {
+    var v = parseFloat(m[1].replace(",", "."));
+    var unit = m[2].toLowerCase();
+    var meters = (unit === "км" || unit === "km") ? v * 1000 : v;
+    if (meters >= 50 && meters <= 20000) return Math.round(meters);
+  }
+  m = text.match(/(\d{3,5})\s*(?:м|m\b)/i);
+  if (m) {
+    var v2 = parseInt(m[1],10);
+    if (v2 >= 50 && v2 <= 20000) return v2;
+  }
+  m = text.match(/(\d+(?:[.,]\d+)?)\s*(?:км|km)\b/i);
+  if (m) {
+    var v3 = parseFloat(m[1].replace(",", ".")) * 1000;
+    if (v3 >= 50 && v3 <= 20000) return Math.round(v3);
+  }
+  return null;
+}
+function formatAlt(alt) {
+  if (alt == null) return "";
+  return alt >= 1000 ? (alt/1000).toFixed(1).replace(/\.0$/, "") + " км" : alt + " м";
+}
+function formatEta(min) {
+  if (min < 0.5) return "< 1 мин";
+  if (min < 60) return "~" + Math.round(min) + " мин";
+  var h = Math.floor(min / 60);
+  var m = Math.round(min % 60);
+  return "~" + h + " ч " + m + " мин";
+}
+
+/* ============================================================
+   РАЗБОР СООБЩЕНИЯ
+============================================================ */
+function parseMessageThreat(msg) {
+  var text = [msg.title, msg.text, msg.message, msg.explanationShort].filter(Boolean).join(" \n ");
+  if (!text) return [];
+  if (NON_AIR_RE.test(text)) return [];
+  var cls = CLASSIFIER(text);
+  if (!cls) return [];
+  var stage = detectStage(text);
+  if (!cls.hard && stage === null) return [];
+
+  var dual = parseDualPosition(text);
+  var fromTo = parseFromTo(text);
+  var place = dual.observed || findPlaceInText(text);
+  var oblastOnly = null;
+  if (!place) {
+    var ob = findOblastInText(text);
+    if (ob) oblastOnly = ob;
+  }
+  if (fromTo.from && !place && !oblastOnly) {
+    oblastOnly = fromTo.from;
+  }
+
+  var lat = null, lon = null, name = "—", isGuess = false, areaOnly = false;
+  var toLat = null, toLon = null, toName = "";
+
+  var targetLike = cls.isMissile || cls.isBanderol || cls.isJetDrone ||
+    cls.type === "uav" || cls.type === "recon" || cls.type === "fpv";
+
+  if (place) {
+    lat = place.lat; lon = place.lon; name = place.name; isGuess = true;
+  } else if (oblastOnly) {
+    lat = oblastOnly.lat; lon = oblastOnly.lon; name = oblastOnly.name;
+    isGuess = true; areaOnly = true;
+  } else {
+    lat = 48.0; lon = 38.0; name = "Схід (оцінка)"; isGuess = true;
+  }
+
+  if (dual.target) { toLat = dual.target.lat; toLon = dual.target.lon; toName = dual.target.name; }
+  if (fromTo.to && !toName) { toLat = fromTo.to.lat; toLon = fromTo.to.lon; toName = fromTo.to.name; }
+
+  if (toLat != null && targetLike && !areaOnly && lat != null) {
+    var distToTarget = haversineKm(lat, lon, toLat, toLon);
+    if (distToTarget >= 3) {
+      var bearing = bearingBetween(lat, lon, toLat, toLon);
+      var offsetKm = cls.isBanderol ? CONFIG.BANDEROL_OFFSET_KM : CONFIG.PRE_TARGET_OFFSET_KM;
+      var pos = destPoint(toLat, toLon, (bearing + 180) % 360, offsetKm);
+      lat = pos[0]; lon = pos[1];
+    }
+  }
+
+  var msgDate = msg.date || msg.createdAt || msg.publishedAt || null;
+  return [{
+    type: cls.type, label: cls.label, hard: !!cls.hard,
+    isMissile: !!cls.isMissile, isKAB: !!cls.isKAB, isBanderol: !!cls.isBanderol,
+    isJetDrone: !!cls.isJetDrone, isMig: !!cls.isMig, isStrategic: !!cls.isStrategic,
+    isAwacs: !!cls.isAwacs, geran5: !!cls.geran5,
+    lat: lat, lon: lon, name: name, isGuess: isGuess, areaOnly: areaOnly,
+    stage: stage, toLat: toLat, toLon: toLon, toName: toName,
+    text: text.slice(0, 400),
+    msgDate: msgDate,
+    channel: msg.channel || msg.source || "",
+    msgId: msg.id || msg.msgId || null
+  }];
+}
+
+/* ============================================================
+   ИКОНКИ
+============================================================ */
+function uavSvg() {
+  return '<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M20 4 L30 22 L24 24 L24 32 L20 30 L16 32 L16 24 L10 22 Z" fill="#fff" stroke="#1a1a1a" stroke-width="1.8" stroke-linejoin="round"/>' +
+    '<path d="M12 20 L6 26 L10 27 Z" fill="#fff" stroke="#1a1a1a" stroke-width="1.4" stroke-linejoin="round"/>' +
+    '<path d="M28 20 L34 26 L30 27 Z" fill="#fff" stroke="#1a1a1a" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+}
+function rocketSvg(color) {
+  return '<svg viewBox="0 0 24 40" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M12 1 C14 1 16 6 16 12 L16 26 L19 32 L16 30 L16 34 L12 38 L8 34 L8 30 L5 32 L8 26 L8 12 C8 6 10 1 12 1 Z" fill="' + color + '" stroke="#1a1a1a" stroke-width="1.1" stroke-linejoin="round"/>' +
+    '<circle cx="12" cy="10" r="1.6" fill="#fff" stroke="#1a1a1a" stroke-width="0.6"/></svg>';
+}
+function migSvg() {
+  return '<svg viewBox="0 0 44 40" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M22 3 L25 14 L38 18 L38 22 L25 22 L25 30 L30 34 L28 36 L22 33 L16 36 L14 34 L19 30 L19 22 L6 22 L6 18 L19 14 Z" fill="#e11d48" stroke="#1a1a1a" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+}
+function stratSvg() {
+  return '<svg viewBox="0 0 44 40" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M22 4 L24 15 L40 20 L40 23 L24 22 L24 30 L28 34 L26 36 L22 33 L18 36 L16 34 L20 30 L20 22 L4 23 L4 20 L20 15 Z" fill="#ea580c" stroke="#1a1a1a" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+}
+function kabSvg(color) {
+  return '<svg viewBox="0 0 36 20" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M4 10 C4 6 6 4 10 4 L20 4 L28 2 L32 6 L34 10 L32 14 L28 18 L20 16 L10 16 C6 16 4 14 4 10 Z" fill="' + color + '" stroke="#1a1a1a" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+}
+
+var TYPE_META = {
+  uav:      { color:"#fff",    label:"БПЛА", icon:uavSvg, isUav:true },
+  recon:    { color:"#fff",    label:"Розв", icon:uavSvg, isUav:true },
+  fpv:      { color:"#ca8a04", label:"FPV",  icon:uavSvg, isUav:true },
+  missile:  { color:"#dc2626", label:"КР",   icon:rocketSvg, isMissile:true },
+  ballistic:{ color:"#b91c1c", label:"Бал",  icon:rocketSvg, isMissile:true },
+  banderol: { color:"#dc2626", label:"Бандероль", icon:rocketSvg, isMissile:true, isBanderol:true },
+  jet_drone:{ color:"#b91c1c", label:"Реакт. Герань", icon:rocketSvg, isMissile:true, isJetDrone:true },
+  kab:      { color:"#dc2626", label:"КАБ",  icon:kabSvg, isMissile:true, isKAB:true },
+  umpb:     { color:"#7c2d12", label:"УМПБ-5", icon:kabSvg, isMissile:true, isKAB:true },
+  mig31k:   { color:"#e11d48", label:"МиГ-31К", icon:migSvg, isMig:true },
+  strategic_aviation:{ color:"#ea580c", label:"Стратег.", icon:stratSvg, isStrategic:true },
+  awacs:    { color:"#0ea5e9", label:"А-50У", icon:uavSvg, isAwacs:true },
+  unknown:  { color:"#475569", label:"?", icon:uavSvg, isUav:true }
+};
+function getMeta(t){ return TYPE_META[t] || TYPE_META.unknown; }
+
+function typeLabel(t) {
+  if (t.geran5) return "Г-5";
+  var map = { missile:"КР", ballistic:"Бал", banderol:"Бандероль", jet_drone:"Реакт.Г",
+    kab:"КАБ", umpb:"УМПБ", fpv:"FPV", uav:"БПЛА", recon:"Розв",
+    mig31k:"МиГ", awacs:"А-50У", strategic_aviation:"Ту-95/160" };
+  return map[t.type] || "";
+}
+
+function makeIcon(t, heading, confirmations) {
+  var meta = getMeta(t.type);
+  var h = heading != null ? heading : 0;
+  var svg = meta.isUav ? meta.icon() : meta.icon(meta.color);
+  var arrow = (heading != null && !meta.isMig && !meta.isStrategic)
+    ? '<div class="dir-arrow"></div>' : "";
+  var alt = t._altitude;
+  var falling = !!t._falling;
+  var lbl = typeLabel(t);
+  var stage = t.stage;
+
+  var iconClasses = ["threat-icon"];
+  if (falling) iconClasses.push("falling");
+
+  var altHtml = alt != null
+    ? '<div class="alt-badge' + (alt <= 300 ? " low" : "") + '">' + formatAlt(alt) + '</div>' : "";
+  var countHtml = t._count ? '<div class="count-badge">' + t._count + '</div>' : "";
+  var fallingHtml = falling ? '<div class="falling-badge">↓ ПАДАЄ</div>' : "";
+
+  var stageHtml = "";
+  if (stage === "threat") stageHtml = '<div class="stage-badge warn">⚠ ЗАГРОЗА</div>';
+  else if (stage === "launch") stageHtml = '<div class="stage-badge">🚀 ПУСК</div>';
+  else if (stage === "takeoff") stageHtml = '<div class="stage-badge takeoff">✈ ВЗЛЁТ</div>';
+  else if (stage === "ready") stageHtml = '<div class="stage-badge ready">⚠ ГОТОВНІСТЬ</div>';
+
+  var badgeColor = meta.isStrategic ? "#9a3412" : meta.isMissile ? "#7f1d1d" :
+                   meta.isMig ? "#7c2d12" : "#1e293b";
+  var labelHtml = lbl
+    ? '<div style="position:absolute;left:50%;top:100%;margin-top:2px;transform:translateX(-50%);' +
+      'background:' + badgeColor + ';color:#fff;font-size:8px;font-weight:800;' +
+      'padding:1px 4px;border-radius:3px;border:1px solid rgba(255,255,255,.3);white-space:nowrap">' + lbl + '</div>'
+    : "";
+
+  var html = '<div style="position:relative;width:28px;height:28px">' +
+    '<div class="' + iconClasses.join(" ") + '" style="position:absolute;inset:0;transform:rotate(' + h + 'deg)">' + arrow + svg + '</div>' +
+    labelHtml + altHtml + countHtml + fallingHtml + stageHtml +
+    '</div>';
+
+  return L.divIcon({
+    className: "",
+    html: html,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    popupAnchor: [0, -14]
+  });
+}
+
+/* ============================================================
+   POPUP
+============================================================ */
+function popupHtml(t, confirmations) {
+  var meta = getMeta(t.type);
+  var label = t.geran5 ? "Герань-5" : meta.label;
+  var loc = t.name || "—";
+  var alt = t._altitude;
+  var altLine = alt != null ? "<br>Высота: " + formatAlt(alt) : "";
+  var eta = t._eta;
+  var etaLine = (eta != null && eta > 0 && !OBSERVATION_TYPES[t.type] && !t.areaOnly)
+    ? '<div class="popup-eta">⏱ Время подлёта: ' + formatEta(eta) + '</div>' : "";
+  var toLine = t.toName ? "<br>🎯 Цель: <b>" + esc(t.toName) + "</b>" : "";
+  var chLine = t.channel ? '<div class="popup-channels"><b>Источник:</b> <span class="ch">' + esc(t.channel) + '</span></div>' : "";
+  var guessNote = t.isGuess ? '<div class="popup-guess">⚠ Позиция — населённый пункт из сообщения, не радар.</div>' : "";
+  var areaNote = t.areaOnly ? '<div class="popup-guess">≈ Названа только область.</div>' : "";
+
+  return '<div class="popup-title type-' + t.type + '">' + label + '</div>' +
+    '<div>' + esc(t.text || "") + '</div>' +
+    etaLine +
+    '<div class="popup-meta" style="margin-top:6px">' +
+    'Місце: ' + esc(loc) + toLine + altLine +
+    (confirmations ? '<br>Подтверждений: <b>' + confirmations + '</b>' : '') +
+    '</div>' + chLine + guessNote + areaNote;
+}
+
+/* ============================================================
+   ХРАНИЛИЩЕ И ОТРИСОВКА
+============================================================ */
+var activeThreats = new Map();
+
+function threatKey(t) {
+  return t.type + "|" + (t.lat||0).toFixed(2) + "|" + (t.lon||0).toFixed(2);
+}
+
+function createOrUpdateThreat(t, now) {
+  var key = threatKey(t);
+  var rec = activeThreats.get(key);
+  if (!rec) {
+    var keys = Array.from(activeThreats.keys());
+    for (var i=0; i<keys.length; i++) {
+      var r = activeThreats.get(keys[i]);
+      if (r.threat.type !== t.type) continue;
+      if (haversineKm(r.threat.lat, r.threat.lon, t.lat, t.lon) <= CONFIG.DEDUP_DIST_KM) {
+        rec = r; break;
+      }
+    }
+  }
+  if (rec) {
+    for (var k in t) if (t.hasOwnProperty(k)) rec.threat[k] = t[k];
+    rec.lastSeen = now;
+    rec.confirmN = (rec.confirmN || 1) + 1;
+  } else {
+    rec = {
+      threat: t,
+      marker: null,
+      confirmN: 1,
+      lastSeen: now
+    };
+    activeThreats.set(key, rec);
+  }
+  renderThreat(rec);
+}
+
+function renderThreat(rec) {
+  var t = rec.threat;
+  var meta = getMeta(t.type);
+  var heading = null;
+  if (t.lat != null && t.lon != null) {
+    var launch = nearestLaunch(t.lat, t.lon);
+    heading = bearingBetween(launch.lat, launch.lon, t.lat, t.lon);
+  }
+  var eta = null;
+  if (t._altitude != null && t.lat != null && !t.areaOnly && !OBSERVATION_TYPES[t.type]) {
+    var speed = meta.isMissile ? 800 : meta.isUav ? 180 : 500;
+    var d = haversineKm(t.lat, t.lon, CONFIG.KYIV[0], CONFIG.KYIV[1]);
+    eta = (d / speed) * 60;
+  }
+  t._eta = eta;
+
+  var icon = makeIcon(t, heading, rec.confirmN);
+
+  if (!rec.marker) {
+    rec.marker = L.marker([t.lat, t.lon], { icon: icon });
+    rec.marker.bindPopup(function(){
+      return popupHtml(t, rec.confirmN);
+    }, { maxWidth: 340 });
+    rec.marker.addTo(msgThreatLayer);
+  } else {
+    rec.marker.setLatLng([t.lat, t.lon]);
+    rec.marker.setIcon(icon);
+  }
+}
+
+function cleanupOldThreats(now) {
+  var ttl = CONFIG.STALE_MSG_MS * 6;
+  activeThreats.forEach(function(rec, key){
+    if (now - rec.lastSeen > ttl) {
+      try { msgThreatLayer.removeLayer(rec.marker); } catch(e){}
+      activeThreats.delete(key);
+    }
+  });
+}
+
+/* ============================================================
+   СТАТИСТИКА
+============================================================ */
+function updateStats() {
+  var uav=0, missile=0, jet=0, bander=0, kab=0, mig=0, strat=0;
+  activeThreats.forEach(function(rec){
+    var t = rec.threat;
+    if (t.type === "uav" || t.type === "recon") uav++;
+    else if (t.type === "missile" || t.type === "ballistic") missile++;
+    else if (t.type === "jet_drone") jet++;
+    else if (t.type === "banderol") bander++;
+    else if (t.type === "kab" || t.type === "umpb") kab++;
+    else if (t.type === "mig31k") mig++;
+    else if (t.type === "strategic_aviation") strat++;
+  });
+  $("cntUav").textContent = uav;
+  $("cntMissile").textContent = missile;
+  $("cntJet").textContent = jet;
+  $("cntBander").textContent = bander;
+  $("cntKab").textContent = kab;
+  $("cntMig").textContent = mig;
+  $("cntStrat").textContent = strat;
+}
+
+/* ============================================================
+   ИНДИКАТОР УГРОЗЫ
+============================================================ */
+function updateThreatMeter() {
+  var score = 0;
+  var rows = [];
+  var hasUav=false, hasMissile=false, hasBallistic=false, hasMig=false, hasStrat=false;
+  activeThreats.forEach(function(rec){
+    var t = rec.threat;
+    var d = haversineKm(t.lat, t.lon, CONFIG.KYIV[0], CONFIG.KYIV[1]);
+    if (d > CONFIG.ZONE_RADIUS_KM) return;
+    if (t.type === "uav" || t.type === "recon" || t.type === "fpv") hasUav = true;
+    if (t.type === "missile" || t.type === "banderol" || t.type === "jet_drone") hasMissile = true;
+    if (t.type === "ballistic") hasBallistic = true;
+    if (t.type === "mig31k") hasMig = true;
+    if (t.type === "strategic_aviation") hasStrat = true;
+  });
+
+  var W = CONFIG.METER_WEIGHTS;
+  function addRow(ico, label, active, weight) {
+    rows.push({ ico:ico, label:label, active:active, weight:weight });
+    if (active) score += weight;
+  }
+  addRow("🛩", "БПЛА в зоне", hasUav, W.uav_launch);
+  addRow("🚀", "Ракеты/Бандероль", hasMissile, W.missile_launch);
+  addRow("⚡", "Баллистика", hasBallistic, W.ballistic);
+  addRow("✈", "МиГ-31К", hasMig, W.mig);
+  addRow("🛫", "Стратег. авиация", hasStrat, W.strategic);
+
+  var capped = Math.min(score, CONFIG.METER_MAX);
+  var level = "green";
+  if (capped >= 8) level = "red";
+  else if (capped >= 5) level = "orange";
+  else if (capped >= 1) level = "yellow";
+
+  var meter = $("threatMeter");
+  meter.className = "threat-meter " + level + (meter.classList.contains("open") ? " open" : "");
+  $("tmScore").textContent = capped + "/" + CONFIG.METER_MAX;
+
+  var texts = {
+    green: "Спокойно · признаков тревоги нет",
+    yellow: "Внимание · есть активность",
+    orange: "Опасность · активность в зоне",
+    red: "КРИТИЧНО · массовая угроза"
+  };
+  $("tmText").textContent = texts[level];
+
+  var body = $("tmBody");
+  body.innerHTML = rows.map(function(r){
+    return '<div class="tm-row ' + (r.active ? "active" : "idle") + '">' +
+      '<span class="ico">' + r.ico + '</span>' +
+      '<span class="label">' + r.label + '</span>' +
+      '<span class="weight">' + (r.active ? "+" + r.weight : "0") + '</span></div>';
+  }).join("");
+}
+
+/* ============================================================
+   ЗАГРУЗКА
+============================================================ */
+var backoff = 1000;
+var fetchErrors = 0;
+
+function fetchMessages() {
+  return fetch(CONFIG.API_MESSAGES)
+    .then(function(r){
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(function(data){
+      var items = Array.isArray(data) ? data : (data.messages || data.items || []);
+      var now = Date.now();
+      var added = 0;
+      for (var i=0; i<items.length; i++) {
+        try {
+          var threats = parseMessageThreat(items[i]);
+          for (var j=0; j<threats.length; j++) {
+            var t = threats[j];
+            t._altitude = parseAltitude(t);
+            t._falling = /падає|падает|сбит|збит|упал|упав/i.test(t.text || "");
+            createOrUpdateThreat(t, now);
+            added++;
+          }
+        } catch(e) { /* пропускаем битые */ }
+      }
+      cleanupOldThreats(now);
+      updateStats();
+      updateThreatMeter();
+      var badge = $("liveBadge");
+      badge.className = "badge live";
+      badge.textContent = "LIVE · " + added;
+      fetchErrors = 0;
+      backoff = 1000;
+    })
+    .catch(function(e){
+      fetchErrors++;
+      var badge = $("liveBadge");
+      badge.className = "badge stale";
+      badge.textContent = "STALE (err " + fetchErrors + ")";
+      console.warn("fetch failed", e);
+      backoff = Math.min(backoff * 1.8, 60000);
+    });
+}
+
+/* ============================================================
+   INIT
+============================================================ */
+var map = L.map("map", {
+  center: CONFIG.KYIV,
+  zoom: 8,
+  zoomControl: true,
+  attributionControl: true
+});
+
+L.tileLayer(CONFIG.TILE_URL, {
+  maxZoom: 19,
+  attribution: CONFIG.TILE_ATTR
+}).addTo(map);
+
+L.circle(CONFIG.KYIV, {
+  radius: CONFIG.ZONE_RADIUS_KM * 1000,
+  className: "zone-circle",
+  interactive: false
+}).addTo(map);
+
+var msgThreatLayer = L.layerGroup().addTo(map);
+var trailLayer = L.layerGroup().addTo(map);
+
+$("btnRefresh").addEventListener("click", function(){
+  showToast("Обновление…");
+  fetchMessages().then(loopNext);
+});
+
+var threatMeter = $("threatMeter");
+threatMeter.addEventListener("click", function(){
+  threatMeter.classList.toggle("open");
+});
+
+var toastTimer = null;
+function showToast(msg, ms) {
+  var t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ t.classList.remove("show"); }, ms || 2000);
+}
+
+function loopNext() {
+  setTimeout(function(){
+    fetchMessages().then(loopNext);
+  }, Math.max(backoff, CONFIG.POLL_MS));
+}
+
+fetchMessages().then(loopNext);
+
+// переодический пересчёт метра
+setInterval(function(){
+  updateThreatMeter();
+  updateStats();
+}, 5000);
+
+setTimeout(function(){ showToast("Карта загружена", 1500); }, 300);
+
+})();
+</script>
+</body>
+</html>
